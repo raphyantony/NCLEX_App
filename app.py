@@ -20,7 +20,7 @@ def ask_gemini(prompt):
 
     url = (
         "https://generativelanguage.googleapis.com/v1beta/models/"
-        "gemini-2.0-flash:generateContent?key="
+        "gemini-1.5-flash:generateContent?key="
         + api_key
     )
 
