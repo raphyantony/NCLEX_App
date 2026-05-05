@@ -18,7 +18,7 @@ def ask_gemini(prompt):
     if not api_key:
         raise Exception("GEMINI_API_KEY is missing in Render environment variables.")
 
-   url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"
+    url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"
 
     payload = {
         "contents": [
@@ -32,15 +32,15 @@ def ask_gemini(prompt):
 
     data = json.dumps(payload).encode("utf-8")
 
-   req = urllib.request.Request(
-    url,
-    data=data,
-    headers={
-        "Content-Type": "application/json",
-        "x-goog-api-key": api_key
-    },
-    method="POST"
-)
+    req = urllib.request.Request(
+        url,
+        data=data,
+        headers={
+            "Content-Type": "application/json",
+            "x-goog-api-key": api_key
+        },
+        method="POST"
+    )
 
     with urllib.request.urlopen(req, timeout=60) as response:
         result = json.loads(response.read().decode("utf-8"))
@@ -194,7 +194,8 @@ Be direct, warm, specific, and practical. Do not list every question. Do not giv
         print("Gemini /api/analyze-block error:", str(e))
         return jsonify({
             "analysis": (
-                 "DEBUG Gemini error: " + str(e) + "\n\nAI Coach is taking a quick break, so here is a self-check instead:\n"
+                "DEBUG Gemini error: " + str(e) + "\n\n"
+                "AI Coach is taking a quick break, so here is a self-check instead:\n"
                 "Summary: You finished another block of " + str(total) + " questions. Nice consistency.\n"
                 "Watch-outs: Re-read any question you missed and ask yourself: did I pick the SAFEST action, or just a reasonable one? Did I follow ABCs and Maslow?\n"
                 "Next block focus: Before locking your instinct, name the priority framework the question is testing: ABC, safety, Maslow, acute vs chronic, or stable vs unstable."
