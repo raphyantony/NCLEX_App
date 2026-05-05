@@ -2,6 +2,7 @@ from flask import Flask, render_template, request, jsonify
 import json
 import random
 import os
+import time
 import urllib.request
 import urllib.error
 
@@ -42,10 +43,27 @@ def ask_gemini(prompt):
         method="POST"
     )
 
-    with urllib.request.urlopen(req, timeout=60) as response:
-        result = json.loads(response.read().decode("utf-8"))
+    transient_codes = {429, 500, 502, 503, 504}
+    max_attempts = 3
+    last_error = None
 
-    return result["candidates"][0]["content"]["parts"][0]["text"]
+    for attempt in range(1, max_attempts + 1):
+        try:
+            with urllib.request.urlopen(req, timeout=60) as response:
+                result = json.loads(response.read().decode("utf-8"))
+
+            return result["candidates"][0]["content"]["parts"][0]["text"]
+
+        except urllib.error.HTTPError as e:
+            last_error = e
+
+            if e.code in transient_codes and attempt < max_attempts:
+                time.sleep(2 ** (attempt - 1))
+                continue
+
+            raise
+
+    raise last_error
 
 
 @app.route('/')
@@ -194,7 +212,6 @@ Be direct, warm, specific, and practical. Do not list every question. Do not giv
         print("Gemini /api/analyze-block error:", str(e))
         return jsonify({
             "analysis": (
-                
                 "AI Coach is taking a quick break, so here is a self-check instead:\n"
                 "Summary: You finished another block of " + str(total) + " questions. Nice consistency.\n"
                 "Watch-outs: Re-read any question you missed and ask yourself: did I pick the SAFEST action, or just a reasonable one? Did I follow ABCs and Maslow?\n"
