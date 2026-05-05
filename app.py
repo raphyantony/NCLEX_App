@@ -194,7 +194,7 @@ Be direct, warm, specific, and practical. Do not list every question. Do not giv
         print("Gemini /api/analyze-block error:", str(e))
         return jsonify({
             "analysis": (
-                "DEBUG Gemini error: " + str(e) + "\n\n"
+                
                 "AI Coach is taking a quick break, so here is a self-check instead:\n"
                 "Summary: You finished another block of " + str(total) + " questions. Nice consistency.\n"
                 "Watch-outs: Re-read any question you missed and ask yourself: did I pick the SAFEST action, or just a reasonable one? Did I follow ABCs and Maslow?\n"
