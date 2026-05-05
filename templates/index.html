@@ -16,6 +16,11 @@
         .options-box, .rationale-box { display: none; margin-top: 20px; }
         .rationale-box { background: #f0fff4; padding: 15px; border-radius: 8px; border: 1px solid #9ae6b4; }
         .trap-box { background: #fff5f5; padding: 15px; border-radius: 8px; border: 1px solid #feb2b2; margin-top: 10px; color: #c53030;}
+        .options-display { margin: 15px 0 20px; padding: 15px; background: #f7fafc; border: 1px solid #e2e8f0; border-radius: 8px; }
+        .options-display h4 { margin: 0 0 10px; font-size: 14px; color: #4a5568; text-transform: uppercase; letter-spacing: 0.5px; }
+        .options-display ul { list-style: none; padding: 0; margin: 0; }
+        .options-display li { padding: 8px 10px; margin: 6px 0; background: white; border: 1px solid #e2e8f0; border-radius: 6px; line-height: 1.4; }
+        .options-display .group-label { font-weight: bold; color: #2b6cb0; margin-top: 12px; }
     </style>
 </head>
 <body>
@@ -23,7 +28,9 @@
     <div class="card">
         <div class="tag" id="q-type">Loading...</div>
         <h2 id="q-stem">Getting your next question...</h2>
-        
+
+        <div class="options-display" id="options-display"></div>
+
         <div id="instinct-section">
             <p><strong>Lock Your First Instinct:</strong><br>The nurse's most important priority right now is...</p>
             <input type="text" id="instinct-input" placeholder="Type your gut answer here...">
@@ -36,7 +43,7 @@
         </div>
 
         <div class="options-box" id="options-box">
-            <p><em>(Options revealed! Discuss with yourself, then click below to see the answer).</em></p>
+            <p><em>(Discuss with yourself, then click below to see the answer).</em></p>
             <button onclick="showAnswer()" style="background: #48bb78;">Reveal Correct Answer</button>
         </div>
 
@@ -55,7 +62,6 @@
         let currentQuestion = {};
 
         async function loadQuestion() {
-            // Reset UI
             document.getElementById('instinct-section').style.display = 'block';
             document.getElementById('instinct-input').value = '';
             document.getElementById('coach-box').style.display = 'none';
@@ -64,12 +70,53 @@
             document.getElementById('lock-btn').innerText = 'Lock Instinct & Reveal Options';
             document.getElementById('lock-btn').disabled = false;
 
-            // Fetch question
             const res = await fetch('/api/question');
             currentQuestion = await res.json();
             
             document.getElementById('q-type').innerText = currentQuestion.type.toUpperCase();
             document.getElementById('q-stem').innerText = currentQuestion.stem;
+            renderOptions(currentQuestion);
+        }
+
+        function renderOptions(q) {
+            const container = document.getElementById('options-display');
+            container.innerHTML = '';
+            if (!q || !q.options) return;
+
+            function buildList(optsObj) {
+                const ul = document.createElement('ul');
+                Object.keys(optsObj).forEach(function(key) {
+                    const li = document.createElement('li');
+                    li.innerHTML = '<strong>' + key + '.</strong> ' + escapeHtml(optsObj[key]);
+                    ul.appendChild(li);
+                });
+                return ul;
+            }
+
+            const heading = document.createElement('h4');
+            heading.innerText = 'Answer Options';
+            container.appendChild(heading);
+
+            if (q.type === 'bowtie') {
+                Object.keys(q.options).forEach(function(group) {
+                    const label = document.createElement('div');
+                    label.className = 'group-label';
+                    label.innerText = group.charAt(0).toUpperCase() + group.slice(1);
+                    container.appendChild(label);
+                    container.appendChild(buildList(q.options[group]));
+                });
+            } else {
+                container.appendChild(buildList(q.options));
+            }
+        }
+
+        function escapeHtml(s) {
+            return String(s)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
         }
 
         async function lockInstinct() {
@@ -79,7 +126,6 @@
             document.getElementById('lock-btn').innerText = 'Asking AI Coach...';
             document.getElementById('lock-btn').disabled = true;
 
-            // Call Gemini AI
             const res = await fetch('/api/coach', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -87,7 +133,6 @@
             });
             const data = await res.json();
 
-            // Show UI
             document.getElementById('instinct-section').style.display = 'none';
             document.getElementById('coach-text').innerText = data.note;
             document.getElementById('coach-box').style.display = 'block';
@@ -97,7 +142,6 @@
         function showAnswer() {
             document.getElementById('options-box').style.display = 'none';
             
-            // Handle Bowtie vs Standard formatting for the answer display
             let answerText = typeof currentQuestion.correct === 'object' ? 
                 JSON.stringify(currentQuestion.correct) : currentQuestion.correct;
                 
@@ -107,7 +151,6 @@
             document.getElementById('rationale-box').style.display = 'block';
         }
 
-        // Load first question on start
         loadQuestion();
     </script>
 </body>
