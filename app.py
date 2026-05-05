@@ -12,8 +12,7 @@ with open('questions.json', 'r', encoding='utf-8') as f:
 
 # Configure Google Gemini AI
 genai.configure(api_key=os.environ.get("GEMINI_API_KEY"))
-model = genai.GenerativeModel('gemini-pro')
-
+model = genai.GenerativeModel('gemini-2.0-flash')
 @app.route('/')
 def home():
     return render_template('index.html')
