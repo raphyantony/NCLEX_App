@@ -18,11 +18,7 @@ def ask_gemini(prompt):
     if not api_key:
         raise Exception("GEMINI_API_KEY is missing in Render environment variables.")
 
-    url = (
-        "https://generativelanguage.googleapis.com/v1beta/models/"
-        "gemini-1.5-flash:generateContent?key="
-        + api_key
-    )
+   url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"
 
     payload = {
         "contents": [
@@ -36,12 +32,15 @@ def ask_gemini(prompt):
 
     data = json.dumps(payload).encode("utf-8")
 
-    req = urllib.request.Request(
-        url,
-        data=data,
-        headers={"Content-Type": "application/json"},
-        method="POST"
-    )
+   req = urllib.request.Request(
+    url,
+    data=data,
+    headers={
+        "Content-Type": "application/json",
+        "x-goog-api-key": api_key
+    },
+    method="POST"
+)
 
     with urllib.request.urlopen(req, timeout=60) as response:
         result = json.loads(response.read().decode("utf-8"))
