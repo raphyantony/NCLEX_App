@@ -11,11 +11,17 @@
         h2 { font-size: 18px; line-height: 1.5; margin-top: 0; }
         button { background: #4299e1; color: white; border: none; padding: 12px 20px; border-radius: 8px; font-size: 16px; font-weight: bold; cursor: pointer; width: 100%; }
         button:hover { background: #3182ce; }
+        button:disabled { background: #cbd5e0; cursor: not-allowed; }
         button.secondary { background: #a0aec0; }
         button.success { background: #48bb78; }
+        .instinct-box { margin-top: 18px; padding: 15px; background: #ebf8ff; border: 1px solid #90cdf4; border-radius: 8px; }
+        .instinct-box label { display: block; font-weight: bold; color: #2c5282; margin-bottom: 6px; font-size: 14px; }
+        .instinct-box .hint { font-size: 12px; color: #4a5568; margin: 0 0 10px; }
+        .instinct-box input { width: 100%; box-sizing: border-box; padding: 10px 12px; border: 1px solid #90cdf4; border-radius: 6px; font-size: 16px; font-family: inherit; }
         .options-box, .rationale-box { display: none; margin-top: 20px; }
         .rationale-box { background: #f0fff4; padding: 15px; border-radius: 8px; border: 1px solid #9ae6b4; }
         .trap-box { background: #fff5f5; padding: 15px; border-radius: 8px; border: 1px solid #feb2b2; margin-top: 10px; color: #c53030;}
+        .your-instinct-box { background: #fffbea; padding: 12px 15px; border-radius: 8px; border: 1px solid #f6e05e; margin-top: 10px; color: #744210; }
         .options-display { margin: 15px 0 20px; padding: 15px; background: #f7fafc; border: 1px solid #e2e8f0; border-radius: 8px; }
         .options-display h4 { margin: 0 0 10px; font-size: 14px; color: #4a5568; text-transform: uppercase; letter-spacing: 0.5px; }
         .options-display ul { list-style: none; padding: 0; margin: 0; }
@@ -27,6 +33,7 @@
         .coach-summary { background: #fffaf0; border-left: 4px solid #ed8936; padding: 18px; margin-bottom: 16px; border-radius: 8px; display: none; }
         .coach-summary h3 { margin: 0 0 8px; color: #c05621; }
         .coach-summary p { margin: 6px 0; line-height: 1.5; }
+        .coach-summary pre { white-space: pre-wrap; word-wrap: break-word; font-family: inherit; font-size: 14px; line-height: 1.5; margin: 6px 0; color: #333; }
         .done-banner { background: #f0fff4; border-left: 4px solid #48bb78; padding: 18px; margin-bottom: 16px; border-radius: 8px; display: none; }
     </style>
 </head>
@@ -38,9 +45,8 @@
     </div>
 
     <div class="coach-summary" id="coach-summary">
-        <h3>Time for a Coaching Break</h3>
-        <p id="coach-summary-text"></p>
-        <p>Take a short pause, review the rationales you found tricky, then keep going.</p>
+        <h3 id="coach-summary-title">Time for a Coaching Break</h3>
+        <pre id="coach-summary-text">Analyzing your last 20 questions...</pre>
         <button onclick="dismissCoachSummary()">Continue Studying</button>
     </div>
 
@@ -56,12 +62,21 @@
         <div class="options-display" id="options-display"></div>
 
         <div class="options-box" id="options-box">
-            <p><em>Think through your answer, then reveal the correct one.</em></p>
-            <button onclick="showAnswer()" class="success">Reveal Correct Answer</button>
+            <div class="instinct-box">
+                <label for="instinct-input">Lock Your First Instinct</label>
+                <p class="hint" id="instinct-hint">Write the letter(s) you would pick. For example: B, or A,C,E for select-all-that-apply.</p>
+                <input type="text" id="instinct-input" placeholder="e.g. B" autocomplete="off" />
+            </div>
+            <p style="margin-top:14px;"><em>Lock your first instinct above, then reveal the correct answer.</em></p>
+            <button onclick="showAnswer()" class="success" id="reveal-btn">Reveal Correct Answer</button>
         </div>
 
         <div class="rationale-box" id="rationale-box">
             <h3 style="margin-top:0; color: #2f855a;">Correct Answer: <span id="correct-letter"></span></h3>
+            <div class="your-instinct-box">
+                <strong>Your first instinct:</strong> <span id="your-instinct-text"></span>
+                <span id="match-indicator"></span>
+            </div>
             <p id="rationale-text"></p>
             <div class="trap-box">
                 <strong>The NCLEX Trap:</strong>
@@ -73,6 +88,7 @@
 
     <script>
         const STORAGE_KEY = 'nclex_answered_ids_v1';
+        const ATTEMPTS_KEY = 'nclex_attempts_v1';
         const BLOCK_KEY = 'nclex_last_coach_block_v1';
         const TOTAL_QUESTIONS = 150;
         const COACH_INTERVAL = 20;
@@ -97,6 +113,23 @@
             } catch (e) {}
         }
 
+        function loadAttempts() {
+            try {
+                const raw = localStorage.getItem(ATTEMPTS_KEY);
+                if (!raw) return [];
+                const arr = JSON.parse(raw);
+                return Array.isArray(arr) ? arr : [];
+            } catch (e) {
+                return [];
+            }
+        }
+
+        function saveAttempts(arr) {
+            try {
+                localStorage.setItem(ATTEMPTS_KEY, JSON.stringify(arr));
+            } catch (e) {}
+        }
+
         function questionKey(q) {
             if (q && (q.id || q.id === 0)) return String(q.id);
             const stem = (q && q.stem) ? q.stem : '';
@@ -111,7 +144,55 @@
             document.getElementById('done-banner').style.display = set.size >= TOTAL_QUESTIONS ? 'block' : 'none';
         }
 
-        function maybeShowCoachSummary() {
+        function normalizeLetters(s) {
+            if (!s) return '';
+            return String(s).toUpperCase().replace(/[^A-Z]/g, '').split('').sort().join('');
+        }
+
+        function instinctMatchesCorrect(instinct, correct, type) {
+            if (!instinct) return null;
+            try {
+                if (type === 'bowtie' || (correct && typeof correct === 'object' && !Array.isArray(correct))) {
+                    return null;
+                }
+                if (Array.isArray(correct)) {
+                    const a = normalizeLetters(instinct);
+                    const b = normalizeLetters(correct.join(''));
+                    if (!a || !b) return null;
+                    return a === b;
+                }
+                if (typeof correct === 'string') {
+                    const a = normalizeLetters(instinct);
+                    const b = normalizeLetters(correct);
+                    if (!a || !b) return null;
+                    return a === b;
+                }
+            } catch (e) {}
+            return null;
+        }
+
+        function recordAttempt(q, instinctRaw) {
+            const matched = instinctMatchesCorrect(instinctRaw, q.correct, q.type);
+            const attempt = {
+                id: q.id != null ? q.id : null,
+                key: questionKey(q),
+                type: q.type || 'standard',
+                stem: q.stem || '',
+                options: q.options || null,
+                instinct: instinctRaw || '',
+                correct: q.correct,
+                rationale: q.rationale || '',
+                trap: q.trap || '',
+                matched: matched,
+                ts: Date.now()
+            };
+            const all = loadAttempts();
+            all.push(attempt);
+            saveAttempts(all);
+            return attempt;
+        }
+
+        async function maybeRunBlockAnalysis() {
             const set = loadAnsweredSet();
             const count = set.size;
             if (count === 0 || count % COACH_INTERVAL !== 0) return;
@@ -121,13 +202,30 @@
 
             try { localStorage.setItem(BLOCK_KEY, String(count)); } catch (e) {}
 
-            document.getElementById('coach-summary-text').innerText =
-                "You've completed " + count + " of " + TOTAL_QUESTIONS +
-                " questions. That's another block of " + COACH_INTERVAL +
-                " done. Nice consistency.";
+            const all = loadAttempts();
+            const lastBlockAttempts = all.slice(-COACH_INTERVAL);
 
+            const titleEl = document.getElementById('coach-summary-title');
+            const textEl = document.getElementById('coach-summary-text');
+            titleEl.innerText = 'Coaching Break: Block ' + (count / COACH_INTERVAL) + ' of ' + (TOTAL_QUESTIONS / COACH_INTERVAL);
+            textEl.innerText = "Analyzing your last " + COACH_INTERVAL + " questions with the AI coach...";
             document.getElementById('coach-summary').style.display = 'block';
             window.scrollTo({ top: 0, behavior: 'smooth' });
+
+            try {
+                const res = await fetch('/api/analyze-block', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ attempts: lastBlockAttempts, blockNumber: count / COACH_INTERVAL })
+                });
+                const data = await res.json();
+                textEl.innerText = data.analysis ||
+                    "You've completed " + count + " of " + TOTAL_QUESTIONS + " questions. Take a short break and review tricky rationales.";
+            } catch (e) {
+                textEl.innerText =
+                    "You've completed " + count + " of " + TOTAL_QUESTIONS +
+                    " questions. The AI coach could not be reached - take a short break and review the rationales you found tricky.";
+            }
         }
 
         function dismissCoachSummary() {
@@ -135,9 +233,10 @@
         }
 
         function resetProgress() {
-            if (!confirm('Reset all progress? This clears your completed-question history on this device.')) return;
+            if (!confirm('Reset all progress? This clears your completed-question history and saved attempts on this device.')) return;
             try {
                 localStorage.removeItem(STORAGE_KEY);
+                localStorage.removeItem(ATTEMPTS_KEY);
                 localStorage.removeItem(BLOCK_KEY);
             } catch (e) {}
             updateProgressDisplay();
@@ -155,6 +254,10 @@
             document.getElementById('q-stem').innerText = 'Getting your next question...';
             document.getElementById('q-type').innerText = 'Loading...';
             document.getElementById('options-display').innerHTML = '';
+            const inputEl = document.getElementById('instinct-input');
+            inputEl.value = '';
+            inputEl.disabled = false;
+            document.getElementById('reveal-btn').disabled = false;
 
             const answered = loadAnsweredSet();
             const allDone = answered.size >= TOTAL_QUESTIONS;
@@ -185,8 +288,19 @@
 
             document.getElementById('q-type').innerText = (currentQuestion.type || 'question').toUpperCase();
             document.getElementById('q-stem').innerText = currentQuestion.stem;
+
+            const hint = document.getElementById('instinct-hint');
+            if (currentQuestion.type === 'sata') {
+                hint.innerText = 'Select-all-that-apply. Write every letter you would pick, e.g. A,C,E.';
+            } else if (currentQuestion.type === 'bowtie') {
+                hint.innerText = 'Bow-tie: write your picks in plain words, e.g. "Condition: B; Actions: A,C; Parameters: A,B".';
+            } else {
+                hint.innerText = 'Write the letter you would pick. For example: B.';
+            }
+
             renderOptions(currentQuestion);
             updateProgressDisplay();
+            inputEl.focus();
         }
 
         function renderOptions(q) {
@@ -231,27 +345,53 @@
         }
 
         function showAnswer() {
+            const inputEl = document.getElementById('instinct-input');
+            const instinctRaw = (inputEl.value || '').trim();
+            if (!instinctRaw) {
+                alert('Please lock your first instinct first - write your answer choice(s) in the box above.');
+                inputEl.focus();
+                return;
+            }
+
+            inputEl.disabled = true;
+            document.getElementById('reveal-btn').disabled = true;
             document.getElementById('options-box').style.display = 'none';
 
             let answerText = typeof currentQuestion.correct === 'object' ?
                 JSON.stringify(currentQuestion.correct) : currentQuestion.correct;
 
             document.getElementById('correct-letter').innerText = answerText || '';
+            document.getElementById('your-instinct-text').innerText = instinctRaw;
+
+            const matched = instinctMatchesCorrect(instinctRaw, currentQuestion.correct, currentQuestion.type);
+            const indicator = document.getElementById('match-indicator');
+            if (matched === true) {
+                indicator.innerText = '  - matches the correct answer';
+                indicator.style.color = '#2f855a';
+            } else if (matched === false) {
+                indicator.innerText = '  - did not match';
+                indicator.style.color = '#c53030';
+            } else {
+                indicator.innerText = '';
+            }
+
             document.getElementById('rationale-text').innerText = currentQuestion.rationale || '';
             document.getElementById('trap-text').innerText = currentQuestion.trap || '';
             document.getElementById('rationale-box').style.display = 'block';
 
             const key = questionKey(currentQuestion);
-            if (key) {
-                const set = loadAnsweredSet();
-                if (!set.has(key)) {
-                    set.add(key);
-                    saveAnsweredSet(set);
-                }
+            const set = loadAnsweredSet();
+            const isNew = key && !set.has(key);
+            if (isNew) {
+                set.add(key);
+                saveAnsweredSet(set);
+                recordAttempt(currentQuestion, instinctRaw);
             }
 
             updateProgressDisplay();
-            maybeShowCoachSummary();
+            if (isNew) {
+                maybeRunBlockAnalysis();
+            }
         }
 
         updateProgressDisplay();
