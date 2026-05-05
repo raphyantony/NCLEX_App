@@ -9,10 +9,10 @@
         .card { background: white; padding: 25px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); margin-bottom: 20px; }
         .tag { display: inline-block; background: #e2e8f0; padding: 5px 10px; border-radius: 15px; font-size: 12px; font-weight: bold; margin-bottom: 15px; color: #4a5568; }
         h2 { font-size: 18px; line-height: 1.5; margin-top: 0; }
-        input[type="text"] { width: 100%; padding: 12px; margin: 15px 0; border: 2px solid #cbd5e0; border-radius: 8px; font-size: 16px; box-sizing: border-box; }
         button { background: #4299e1; color: white; border: none; padding: 12px 20px; border-radius: 8px; font-size: 16px; font-weight: bold; cursor: pointer; width: 100%; }
         button:hover { background: #3182ce; }
-        .coach-box { background: #ebf8ff; border-left: 4px solid #4299e1; padding: 15px; margin: 20px 0; border-radius: 4px; display: none; }
+        button.secondary { background: #a0aec0; }
+        button.success { background: #48bb78; }
         .options-box, .rationale-box { display: none; margin-top: 20px; }
         .rationale-box { background: #f0fff4; padding: 15px; border-radius: 8px; border: 1px solid #9ae6b4; }
         .trap-box { background: #fff5f5; padding: 15px; border-radius: 8px; border: 1px solid #feb2b2; margin-top: 10px; color: #c53030;}
@@ -21,61 +21,172 @@
         .options-display ul { list-style: none; padding: 0; margin: 0; }
         .options-display li { padding: 8px 10px; margin: 6px 0; background: white; border: 1px solid #e2e8f0; border-radius: 6px; line-height: 1.4; }
         .options-display .group-label { font-weight: bold; color: #2b6cb0; margin-top: 12px; }
+        .progress-bar { display: flex; justify-content: space-between; align-items: center; background: white; padding: 12px 18px; border-radius: 12px; box-shadow: 0 2px 4px rgba(0,0,0,0.06); margin-bottom: 16px; font-size: 14px; }
+        .progress-bar .count { font-weight: bold; color: #2b6cb0; }
+        .progress-bar .reset-link { background: none; color: #718096; border: none; padding: 0; font-size: 12px; width: auto; cursor: pointer; text-decoration: underline; font-weight: normal; }
+        .coach-summary { background: #fffaf0; border-left: 4px solid #ed8936; padding: 18px; margin-bottom: 16px; border-radius: 8px; display: none; }
+        .coach-summary h3 { margin: 0 0 8px; color: #c05621; }
+        .coach-summary p { margin: 6px 0; line-height: 1.5; }
+        .done-banner { background: #f0fff4; border-left: 4px solid #48bb78; padding: 18px; margin-bottom: 16px; border-radius: 8px; display: none; }
     </style>
 </head>
 <body>
 
-    <div class="card">
+    <div class="progress-bar">
+        <span>Completed: <span class="count" id="progress-count">0</span> / <span id="progress-total">150</span></span>
+        <button class="reset-link" onclick="resetProgress()">Reset progress</button>
+    </div>
+
+    <div class="coach-summary" id="coach-summary">
+        <h3>Time for a Coaching Break</h3>
+        <p id="coach-summary-text"></p>
+        <p>Take a short pause, review the rationales you found tricky, then keep going.</p>
+        <button onclick="dismissCoachSummary()">Continue Studying</button>
+    </div>
+
+    <div class="done-banner" id="done-banner">
+        <h3 style="margin-top:0; color:#2f855a;">You have completed all 150 questions!</h3>
+        <p>Great work. You can reset progress to start a fresh round.</p>
+    </div>
+
+    <div class="card" id="question-card">
         <div class="tag" id="q-type">Loading...</div>
         <h2 id="q-stem">Getting your next question...</h2>
 
         <div class="options-display" id="options-display"></div>
 
-        <div id="instinct-section">
-            <p><strong>Lock Your First Instinct:</strong><br>The nurse's most important priority right now is...</p>
-            <input type="text" id="instinct-input" placeholder="Type your gut answer here...">
-            <button onclick="lockInstinct()" id="lock-btn">Lock Instinct & Reveal Options</button>
-        </div>
-
-        <div class="coach-box" id="coach-box">
-            <strong>✨ AI Coach Says:</strong>
-            <p id="coach-text">Thinking...</p>
-        </div>
-
         <div class="options-box" id="options-box">
-            <p><em>(Discuss with yourself, then click below to see the answer).</em></p>
-            <button onclick="showAnswer()" style="background: #48bb78;">Reveal Correct Answer</button>
+            <p><em>Think through your answer, then reveal the correct one.</em></p>
+            <button onclick="showAnswer()" class="success">Reveal Correct Answer</button>
         </div>
 
         <div class="rationale-box" id="rationale-box">
             <h3 style="margin-top:0; color: #2f855a;">Correct Answer: <span id="correct-letter"></span></h3>
             <p id="rationale-text"></p>
             <div class="trap-box">
-                <strong>⚠️ The NCLEX Trap:</strong>
+                <strong>The NCLEX Trap:</strong>
                 <p id="trap-text"></p>
             </div>
-            <button onclick="loadQuestion()" style="margin-top: 15px; background: #a0aec0;">Next Question</button>
+            <button onclick="loadQuestion()" class="secondary" style="margin-top: 15px;">Next Question</button>
         </div>
     </div>
 
     <script>
+        const STORAGE_KEY = 'nclex_answered_ids_v1';
+        const BLOCK_KEY = 'nclex_last_coach_block_v1';
+        const TOTAL_QUESTIONS = 150;
+        const COACH_INTERVAL = 20;
+        const MAX_FETCH_RETRIES = 25;
+
         let currentQuestion = {};
 
-        async function loadQuestion() {
-            document.getElementById('instinct-section').style.display = 'block';
-            document.getElementById('instinct-input').value = '';
-            document.getElementById('coach-box').style.display = 'none';
-            document.getElementById('options-box').style.display = 'none';
-            document.getElementById('rationale-box').style.display = 'none';
-            document.getElementById('lock-btn').innerText = 'Lock Instinct & Reveal Options';
-            document.getElementById('lock-btn').disabled = false;
+        function loadAnsweredSet() {
+            try {
+                const raw = localStorage.getItem(STORAGE_KEY);
+                if (!raw) return new Set();
+                const arr = JSON.parse(raw);
+                return new Set(Array.isArray(arr) ? arr : []);
+            } catch (e) {
+                return new Set();
+            }
+        }
 
+        function saveAnsweredSet(set) {
+            try {
+                localStorage.setItem(STORAGE_KEY, JSON.stringify(Array.from(set)));
+            } catch (e) {}
+        }
+
+        function questionKey(q) {
+            if (q && (q.id || q.id === 0)) return String(q.id);
+            const stem = (q && q.stem) ? q.stem : '';
+            const type = (q && q.type) ? q.type : '';
+            return type + '::' + stem.slice(0, 120);
+        }
+
+        function updateProgressDisplay() {
+            const set = loadAnsweredSet();
+            document.getElementById('progress-count').innerText = set.size;
+            document.getElementById('progress-total').innerText = TOTAL_QUESTIONS;
+            document.getElementById('done-banner').style.display = set.size >= TOTAL_QUESTIONS ? 'block' : 'none';
+        }
+
+        function maybeShowCoachSummary() {
+            const set = loadAnsweredSet();
+            const count = set.size;
+            if (count === 0 || count % COACH_INTERVAL !== 0) return;
+
+            const lastBlock = parseInt(localStorage.getItem(BLOCK_KEY) || '0', 10);
+            if (count === lastBlock) return;
+
+            try { localStorage.setItem(BLOCK_KEY, String(count)); } catch (e) {}
+
+            document.getElementById('coach-summary-text').innerText =
+                "You've completed " + count + " of " + TOTAL_QUESTIONS +
+                " questions. That's another block of " + COACH_INTERVAL +
+                " done. Nice consistency.";
+
+            document.getElementById('coach-summary').style.display = 'block';
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+
+        function dismissCoachSummary() {
+            document.getElementById('coach-summary').style.display = 'none';
+        }
+
+        function resetProgress() {
+            if (!confirm('Reset all progress? This clears your completed-question history on this device.')) return;
+            try {
+                localStorage.removeItem(STORAGE_KEY);
+                localStorage.removeItem(BLOCK_KEY);
+            } catch (e) {}
+            updateProgressDisplay();
+            loadQuestion();
+        }
+
+        async function fetchOneQuestion() {
             const res = await fetch('/api/question');
-            currentQuestion = await res.json();
-            
-            document.getElementById('q-type').innerText = currentQuestion.type.toUpperCase();
+            return await res.json();
+        }
+
+        async function loadQuestion() {
+            document.getElementById('options-box').style.display = 'block';
+            document.getElementById('rationale-box').style.display = 'none';
+            document.getElementById('q-stem').innerText = 'Getting your next question...';
+            document.getElementById('q-type').innerText = 'Loading...';
+            document.getElementById('options-display').innerHTML = '';
+
+            const answered = loadAnsweredSet();
+            const allDone = answered.size >= TOTAL_QUESTIONS;
+
+            let chosen = null;
+            let lastFetched = null;
+
+            for (let i = 0; i < MAX_FETCH_RETRIES; i++) {
+                try {
+                    const q = await fetchOneQuestion();
+                    lastFetched = q;
+                    const key = questionKey(q);
+                    if (allDone || !answered.has(key)) {
+                        chosen = q;
+                        break;
+                    }
+                } catch (e) {
+                    break;
+                }
+            }
+
+            currentQuestion = chosen || lastFetched || {};
+
+            if (!currentQuestion || !currentQuestion.stem) {
+                document.getElementById('q-stem').innerText = 'Could not load a question. Please try again.';
+                return;
+            }
+
+            document.getElementById('q-type').innerText = (currentQuestion.type || 'question').toUpperCase();
             document.getElementById('q-stem').innerText = currentQuestion.stem;
             renderOptions(currentQuestion);
+            updateProgressDisplay();
         }
 
         function renderOptions(q) {
@@ -119,38 +230,31 @@
                 .replace(/'/g, '&#39;');
         }
 
-        async function lockInstinct() {
-            const instinct = document.getElementById('instinct-input').value;
-            if (!instinct) return alert("Type your instinct first!");
-
-            document.getElementById('lock-btn').innerText = 'Asking AI Coach...';
-            document.getElementById('lock-btn').disabled = true;
-
-            const res = await fetch('/api/coach', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ instinct: instinct, rationale: currentQuestion.rationale })
-            });
-            const data = await res.json();
-
-            document.getElementById('instinct-section').style.display = 'none';
-            document.getElementById('coach-text').innerText = data.note;
-            document.getElementById('coach-box').style.display = 'block';
-            document.getElementById('options-box').style.display = 'block';
-        }
-
         function showAnswer() {
             document.getElementById('options-box').style.display = 'none';
-            
-            let answerText = typeof currentQuestion.correct === 'object' ? 
+
+            let answerText = typeof currentQuestion.correct === 'object' ?
                 JSON.stringify(currentQuestion.correct) : currentQuestion.correct;
-                
-            document.getElementById('correct-letter').innerText = answerText;
-            document.getElementById('rationale-text').innerText = currentQuestion.rationale;
-            document.getElementById('trap-text').innerText = currentQuestion.trap;
+
+            document.getElementById('correct-letter').innerText = answerText || '';
+            document.getElementById('rationale-text').innerText = currentQuestion.rationale || '';
+            document.getElementById('trap-text').innerText = currentQuestion.trap || '';
             document.getElementById('rationale-box').style.display = 'block';
+
+            const key = questionKey(currentQuestion);
+            if (key) {
+                const set = loadAnsweredSet();
+                if (!set.has(key)) {
+                    set.add(key);
+                    saveAnsweredSet(set);
+                }
+            }
+
+            updateProgressDisplay();
+            maybeShowCoachSummary();
         }
 
+        updateProgressDisplay();
         loadQuestion();
     </script>
 </body>
