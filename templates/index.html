@@ -8,6 +8,7 @@
         body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background-color: #f4f7f6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px; }
         .card { background: white; padding: 25px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); margin-bottom: 20px; }
         .tag { display: inline-block; background: #e2e8f0; padding: 5px 10px; border-radius: 15px; font-size: 12px; font-weight: bold; margin-bottom: 15px; color: #4a5568; }
+        .system-tag { display: inline-block; background: #edf2f7; padding: 4px 9px; border-radius: 12px; font-size: 11px; font-weight: 600; margin-left: 6px; margin-bottom: 15px; color: #4a5568; letter-spacing: 0.3px; }
         h2 { font-size: 18px; line-height: 1.5; margin-top: 0; }
         button { background: #4299e1; color: white; border: none; padding: 12px 20px; border-radius: 8px; font-size: 16px; font-weight: bold; cursor: pointer; width: 100%; }
         button:hover { background: #3182ce; }
@@ -32,7 +33,6 @@
         .progress-bar .reset-link { background: none; color: #718096; border: none; padding: 0; font-size: 12px; width: auto; cursor: pointer; text-decoration: underline; font-weight: normal; }
         .coach-summary { background: #fffaf0; border-left: 4px solid #ed8936; padding: 18px; margin-bottom: 16px; border-radius: 8px; display: none; }
         .coach-summary h3 { margin: 0 0 8px; color: #c05621; }
-        .coach-summary p { margin: 6px 0; line-height: 1.5; }
         .coach-summary pre { white-space: pre-wrap; word-wrap: break-word; font-family: inherit; font-size: 14px; line-height: 1.5; margin: 6px 0; color: #333; }
         .done-banner { background: #f0fff4; border-left: 4px solid #48bb78; padding: 18px; margin-bottom: 16px; border-radius: 8px; display: none; }
     </style>
@@ -40,7 +40,7 @@
 <body>
 
     <div class="progress-bar">
-        <span>Completed: <span class="count" id="progress-count">0</span> / <span id="progress-total">150</span></span>
+        <span>Completed: <span class="count" id="progress-count">0</span> / <span id="progress-total">151</span></span>
         <button class="reset-link" onclick="resetProgress()">Reset progress</button>
     </div>
 
@@ -51,12 +51,16 @@
     </div>
 
     <div class="done-banner" id="done-banner">
-        <h3 style="margin-top:0; color:#2f855a;">You have completed all 150 questions!</h3>
+        <h3 style="margin-top:0; color:#2f855a;">You have completed all 151 questions!</h3>
         <p>Great work. You can reset progress to start a fresh round.</p>
     </div>
 
     <div class="card" id="question-card">
-        <div class="tag" id="q-type">Loading...</div>
+        <div>
+            <span class="tag" id="q-type">Loading...</span>
+            <span class="system-tag" id="q-system" style="display:none;"></span>
+        </div>
+
         <h2 id="q-stem">Getting your next question...</h2>
 
         <div class="options-display" id="options-display"></div>
@@ -90,7 +94,8 @@
         const STORAGE_KEY = 'nclex_answered_ids_v1';
         const ATTEMPTS_KEY = 'nclex_attempts_v1';
         const BLOCK_KEY = 'nclex_last_coach_block_v1';
-        const TOTAL_QUESTIONS = 150;
+        const SYSTEM_STATS_KEY = 'nclex_system_stats_v1';
+        const TOTAL_QUESTIONS = 151;
         const COACH_INTERVAL = 20;
         const MAX_FETCH_RETRIES = 25;
 
@@ -130,11 +135,74 @@
             } catch (e) {}
         }
 
+        function loadSystemStats() {
+            try {
+                const raw = localStorage.getItem(SYSTEM_STATS_KEY);
+                if (!raw) return {};
+                const obj = JSON.parse(raw);
+                return (obj && typeof obj === 'object') ? obj : {};
+            } catch (e) {
+                return {};
+            }
+        }
+
+        function saveSystemStats(obj) {
+            try {
+                localStorage.setItem(SYSTEM_STATS_KEY, JSON.stringify(obj));
+            } catch (e) {}
+        }
+
+        function recordSystemOutcome(systemName, matched) {
+            const stats = loadSystemStats();
+            const key = systemName || 'Uncategorized';
+            const entry = stats[key] || { seen: 0, missed: 0 };
+
+            entry.seen = (entry.seen || 0) + 1;
+
+            if (matched === false) {
+                entry.missed = (entry.missed || 0) + 1;
+            }
+
+            stats[key] = entry;
+            saveSystemStats(stats);
+        }
+
+        function weakSystemsRanked() {
+            const stats = loadSystemStats();
+            const arr = [];
+
+            Object.keys(stats).forEach(function(name) {
+                const e = stats[name] || {};
+                const seen = e.seen || 0;
+                const missed = e.missed || 0;
+
+                if (seen >= 2 && missed > 0) {
+                    arr.push({
+                        name: name,
+                        rate: missed / seen,
+                        missed: missed,
+                        seen: seen
+                    });
+                }
+            });
+
+            arr.sort(function(a, b) {
+                if (b.rate !== a.rate) return b.rate - a.rate;
+                return b.missed - a.missed;
+            });
+
+            return arr.map(function(x) { return x.name; });
+        }
+
         function questionKey(q) {
             if (q && (q.id || q.id === 0)) return String(q.id);
             const stem = (q && q.stem) ? q.stem : '';
             const type = (q && q.type) ? q.type : '';
             return type + '::' + stem.slice(0, 120);
+        }
+
+        function questionSystem(q) {
+            return (q && q.system) ? q.system : 'Uncategorized';
         }
 
         function updateProgressDisplay() {
@@ -151,16 +219,19 @@
 
         function instinctMatchesCorrect(instinct, correct, type) {
             if (!instinct) return null;
+
             try {
                 if (type === 'bowtie' || (correct && typeof correct === 'object' && !Array.isArray(correct))) {
                     return null;
                 }
+
                 if (Array.isArray(correct)) {
                     const a = normalizeLetters(instinct);
                     const b = normalizeLetters(correct.join(''));
                     if (!a || !b) return null;
                     return a === b;
                 }
+
                 if (typeof correct === 'string') {
                     const a = normalizeLetters(instinct);
                     const b = normalizeLetters(correct);
@@ -168,15 +239,18 @@
                     return a === b;
                 }
             } catch (e) {}
+
             return null;
         }
 
         function recordAttempt(q, instinctRaw) {
             const matched = instinctMatchesCorrect(instinctRaw, q.correct, q.type);
+
             const attempt = {
                 id: q.id != null ? q.id : null,
                 key: questionKey(q),
                 type: q.type || 'standard',
+                system: questionSystem(q),
                 stem: q.stem || '',
                 options: q.options || null,
                 instinct: instinctRaw || '',
@@ -186,29 +260,39 @@
                 matched: matched,
                 ts: Date.now()
             };
+
             const all = loadAttempts();
             all.push(attempt);
             saveAttempts(all);
+
             return attempt;
         }
 
         async function maybeRunBlockAnalysis() {
             const set = loadAnsweredSet();
             const count = set.size;
+
             if (count === 0 || count % COACH_INTERVAL !== 0) return;
 
             const lastBlock = parseInt(localStorage.getItem(BLOCK_KEY) || '0', 10);
             if (count === lastBlock) return;
 
-            try { localStorage.setItem(BLOCK_KEY, String(count)); } catch (e) {}
+            try {
+                localStorage.setItem(BLOCK_KEY, String(count));
+            } catch (e) {}
 
             const all = loadAttempts();
             const lastBlockAttempts = all.slice(-COACH_INTERVAL);
 
             const titleEl = document.getElementById('coach-summary-title');
             const textEl = document.getElementById('coach-summary-text');
-            titleEl.innerText = 'Coaching Break: Block ' + (count / COACH_INTERVAL) + ' of ' + (TOTAL_QUESTIONS / COACH_INTERVAL);
-            textEl.innerText = "Analyzing your last " + COACH_INTERVAL + " questions with the AI coach...";
+
+            const start = count - COACH_INTERVAL + 1;
+            const end = count;
+
+            titleEl.innerText = 'Coaching Break: Questions ' + start + '-' + end;
+            textEl.innerText = 'Analyzing your last ' + COACH_INTERVAL + ' questions with the AI coach...';
+
             document.getElementById('coach-summary').style.display = 'block';
             window.scrollTo({ top: 0, behavior: 'smooth' });
 
@@ -216,9 +300,14 @@
                 const res = await fetch('/api/analyze-block', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ attempts: lastBlockAttempts, blockNumber: count / COACH_INTERVAL })
+                    body: JSON.stringify({
+                        attempts: lastBlockAttempts,
+                        blockNumber: count / COACH_INTERVAL
+                    })
                 });
+
                 const data = await res.json();
+
                 textEl.innerText = data.analysis ||
                     "You've completed " + count + " of " + TOTAL_QUESTIONS + " questions. Take a short break and review tricky rationales.";
             } catch (e) {
@@ -234,17 +323,35 @@
 
         function resetProgress() {
             if (!confirm('Reset all progress? This clears your completed-question history and saved attempts on this device.')) return;
+
             try {
                 localStorage.removeItem(STORAGE_KEY);
                 localStorage.removeItem(ATTEMPTS_KEY);
                 localStorage.removeItem(BLOCK_KEY);
+                localStorage.removeItem(SYSTEM_STATS_KEY);
             } catch (e) {}
+
             updateProgressDisplay();
             loadQuestion();
         }
 
         async function fetchOneQuestion() {
-            const res = await fetch('/api/question');
+            const answered = Array.from(loadAnsweredSet());
+            const weak = weakSystemsRanked();
+            const params = new URLSearchParams();
+
+            if (answered.length) {
+                params.set('answered', answered.join(','));
+            }
+
+            if (weak.length) {
+                params.set('weak_systems', weak.join(','));
+            }
+
+            const qs = params.toString();
+            const url = qs ? ('/api/question?' + qs) : '/api/question';
+
+            const res = await fetch(url);
             return await res.json();
         }
 
@@ -253,10 +360,14 @@
             document.getElementById('rationale-box').style.display = 'none';
             document.getElementById('q-stem').innerText = 'Getting your next question...';
             document.getElementById('q-type').innerText = 'Loading...';
+            document.getElementById('q-system').style.display = 'none';
+            document.getElementById('q-system').innerText = '';
             document.getElementById('options-display').innerHTML = '';
+
             const inputEl = document.getElementById('instinct-input');
             inputEl.value = '';
             inputEl.disabled = false;
+
             document.getElementById('reveal-btn').disabled = false;
 
             const answered = loadAnsweredSet();
@@ -270,6 +381,7 @@
                     const q = await fetchOneQuestion();
                     lastFetched = q;
                     const key = questionKey(q);
+
                     if (allDone || !answered.has(key)) {
                         chosen = q;
                         break;
@@ -287,9 +399,21 @@
             }
 
             document.getElementById('q-type').innerText = (currentQuestion.type || 'question').toUpperCase();
+
+            const sysEl = document.getElementById('q-system');
+            const sysName = questionSystem(currentQuestion);
+
+            if (sysName && sysName !== 'Uncategorized') {
+                sysEl.innerText = sysName;
+                sysEl.style.display = 'inline-block';
+            } else {
+                sysEl.style.display = 'none';
+            }
+
             document.getElementById('q-stem').innerText = currentQuestion.stem;
 
             const hint = document.getElementById('instinct-hint');
+
             if (currentQuestion.type === 'sata') {
                 hint.innerText = 'Select-all-that-apply. Write every letter you would pick, e.g. A,C,E.';
             } else if (currentQuestion.type === 'bowtie') {
@@ -306,15 +430,18 @@
         function renderOptions(q) {
             const container = document.getElementById('options-display');
             container.innerHTML = '';
+
             if (!q || !q.options) return;
 
             function buildList(optsObj) {
                 const ul = document.createElement('ul');
+
                 Object.keys(optsObj).forEach(function(key) {
                     const li = document.createElement('li');
                     li.innerHTML = '<strong>' + key + '.</strong> ' + escapeHtml(optsObj[key]);
                     ul.appendChild(li);
                 });
+
                 return ul;
             }
 
@@ -347,6 +474,7 @@
         function showAnswer() {
             const inputEl = document.getElementById('instinct-input');
             const instinctRaw = (inputEl.value || '').trim();
+
             if (!instinctRaw) {
                 alert('Please lock your first instinct first - write your answer choice(s) in the box above.');
                 inputEl.focus();
@@ -357,14 +485,16 @@
             document.getElementById('reveal-btn').disabled = true;
             document.getElementById('options-box').style.display = 'none';
 
-            let answerText = typeof currentQuestion.correct === 'object' ?
-                JSON.stringify(currentQuestion.correct) : currentQuestion.correct;
+            let answerText = typeof currentQuestion.correct === 'object'
+                ? JSON.stringify(currentQuestion.correct)
+                : currentQuestion.correct;
 
             document.getElementById('correct-letter').innerText = answerText || '';
             document.getElementById('your-instinct-text').innerText = instinctRaw;
 
             const matched = instinctMatchesCorrect(instinctRaw, currentQuestion.correct, currentQuestion.type);
             const indicator = document.getElementById('match-indicator');
+
             if (matched === true) {
                 indicator.innerText = '  - matches the correct answer';
                 indicator.style.color = '#2f855a';
@@ -382,13 +512,16 @@
             const key = questionKey(currentQuestion);
             const set = loadAnsweredSet();
             const isNew = key && !set.has(key);
+
             if (isNew) {
                 set.add(key);
                 saveAnsweredSet(set);
                 recordAttempt(currentQuestion, instinctRaw);
+                recordSystemOutcome(questionSystem(currentQuestion), matched);
             }
 
             updateProgressDisplay();
+
             if (isNew) {
                 maybeRunBlockAnalysis();
             }
