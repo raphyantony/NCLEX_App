@@ -66,6 +66,18 @@ def ask_gemini(prompt):
     raise last_error
 
 
+def _question_key(q):
+    if q.get('id') is not None:
+        return str(q['id'])
+    stem = (q.get('stem') or '')[:120]
+    qtype = q.get('type') or ''
+    return qtype + '::' + stem
+
+
+def _question_system(q):
+    return q.get('system') or 'Uncategorized'
+
+
 @app.route('/')
 def home():
     return render_template('index.html')
@@ -73,12 +85,34 @@ def home():
 
 @app.route('/api/question')
 def get_question():
+    if not questions:
+        return jsonify({}), 404
+
+    answered_raw = request.args.get('answered', '') or ''
+    weak_raw = request.args.get('weak_systems', '') or ''
+
+    answered_keys = {k for k in (s.strip() for s in answered_raw.split(',')) if k}
+    weak_systems = [s.strip() for s in weak_raw.split(',') if s.strip()]
+
+    if not answered_keys and not weak_systems:
+        return jsonify(random.choice(questions))
+
+    unanswered = [q for q in questions if _question_key(q) not in answered_keys]
+
+    if unanswered and weak_systems:
+        for sys_name in weak_systems:
+            pool = [q for q in unanswered if _question_system(q) == sys_name]
+            if pool:
+                return jsonify(random.choice(pool))
+
+    if unanswered:
+        return jsonify(random.choice(unanswered))
+
     return jsonify(random.choice(questions))
 
 
 @app.route('/api/coach', methods=['POST'])
 def get_coaching():
-    # Kept for backward compatibility. The main UI no longer uses this after every question.
     data = request.json or {}
     instinct = data.get('instinct')
     rationale = data.get('rationale')
